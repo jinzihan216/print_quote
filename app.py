@@ -18,6 +18,7 @@ def login():
     if "user" not in st.session_state:
         st.session_state.user = None
 
+    # 已登录，显示用户信息
     if st.session_state.user is not None:
         st.sidebar.success(f"👤 {st.session_state.user['name']}")
         if st.sidebar.button("退出登录"):
@@ -25,8 +26,11 @@ def login():
             st.rerun()
         return
 
-    code = st.query_params.get("code")
+    # 处理飞书回调
+    query_params = st.query_params
+    code = query_params.get("code")
     if code:
+        st.info("正在登录，请稍候...")  # 调试信息，若看到此信息说明已进入回调处理
         # 换取 token
         token_url = "https://open.feishu.cn/open-apis/authen/v1/access_token"
         body = {
@@ -35,7 +39,12 @@ def login():
             "grant_type": "authorization_code",
             "code": code,
         }
-        resp = requests.post(token_url, json=body, headers={"Content-Type": "application/json"}).json()
+        try:
+            resp = requests.post(token_url, json=body, headers={"Content-Type": "application/json"}).json()
+        except Exception as e:
+            st.error(f"网络请求失败：{str(e)}")
+            st.stop()
+
         if resp.get("code") == 0:
             access_token = resp["data"]["access_token"]
             user_resp = requests.get(
@@ -43,25 +52,21 @@ def login():
                 headers={"Authorization": f"Bearer {access_token}"}
             ).json()
             if user_resp.get("code") == 0:
+                user_info = user_resp["data"]
                 st.session_state.user = {
-                    "open_id": user_resp["data"]["open_id"],
-                    "name": user_resp["data"].get("name", "用户"),
+                    "open_id": user_info["open_id"],
+                    "name": user_info.get("name", "用户"),
                 }
-                # 关键：清除查询参数并强制刷新
+                # 清除查询参数并重跑
                 st.query_params.clear()
-                # 使用 JavaScript 强制跳转到首页（去掉 code 参数）
-                st.markdown(
-                    "<script>window.location.href = window.location.origin + '/';</script>",
-                    unsafe_allow_html=True
-                )
-                st.stop()
+                st.rerun()
             else:
-                st.error("获取用户信息失败")
+                st.error(f"获取用户信息失败：{user_resp.get('msg', '未知错误')}")
         else:
-            st.error(f"登录失败：{resp.get('msg', '未知错误')}")
+            st.error(f"换取 token 失败：{resp.get('msg', '未知错误')}")
         st.stop()
     else:
-        # 未登录，显示飞书授权按钮
+        # 未登录且无 code，显示飞书授权按钮
         auth_url = (
             f"https://open.feishu.cn/open-apis/authen/v1/index?"
             f"app_id={FEISHU_APP_ID}&redirect_uri={REDIRECT_URI}"

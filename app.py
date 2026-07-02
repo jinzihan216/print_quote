@@ -18,69 +18,71 @@ def login():
     if "user" not in st.session_state:
         st.session_state.user = None
 
-    # 已登录，显示用户信息
+    # ---------- 已登录用户 ----------
     if st.session_state.user is not None:
+        # 如果 URL 中还有 code 残留，立刻清除并刷新（避免下次误处理）
+        if st.query_params.get("code"):
+            st.query_params.clear()
+            st.rerun()
         st.sidebar.success(f"👤 {st.session_state.user['name']}")
         if st.sidebar.button("退出登录"):
             st.session_state.user = None
             st.rerun()
-        return
+        return  # 已登录，直接继续渲染后续页面
 
-    # 处理飞书回调
-    query_params = st.query_params
-    code = query_params.get("code")
+    # ---------- 未登录，处理飞书回调 ----------
+    code = st.query_params.get("code")
     if code:
-        st.info("正在登录，请稍候...")  # 调试信息，若看到此信息说明已进入回调处理
-        # 换取 token
-        token_url = "https://open.feishu.cn/open-apis/authen/v1/access_token"
-        body = {
-            "app_id": FEISHU_APP_ID,
-            "app_secret": FEISHU_APP_SECRET,
-            "grant_type": "authorization_code",
-            "code": code,
-        }
-        try:
-            resp = requests.post(token_url, json=body, headers={"Content-Type": "application/json"}).json()
-        except Exception as e:
-            st.error(f"网络请求失败：{str(e)}")
-            st.stop()
+        with st.spinner("正在登录…"):
+            # 换取 token
+            token_url = "https://open.feishu.cn/open-apis/authen/v1/access_token"
+            body = {
+                "app_id": FEISHU_APP_ID,
+                "app_secret": FEISHU_APP_SECRET,
+                "grant_type": "authorization_code",
+                "code": code,
+            }
+            try:
+                resp = requests.post(token_url, json=body, headers={"Content-Type": "application/json"}).json()
+            except Exception as e:
+                st.error(f"网络请求失败：{str(e)}")
+                st.stop()
 
-        if resp.get("code") == 0:
-            access_token = resp["data"]["access_token"]
-            user_resp = requests.get(
-                "https://open.feishu.cn/open-apis/authen/v1/user_info",
-                headers={"Authorization": f"Bearer {access_token}"}
-            ).json()
-            if user_resp.get("code") == 0:
-                user_info = user_resp["data"]
-                st.session_state.user = {
-                    "open_id": user_info["open_id"],
-                    "name": user_info.get("name", "用户"),
-                }
-                # 清除查询参数并重跑
-                st.query_params.clear()
-                st.rerun()
+            if resp.get("code") == 0:
+                access_token = resp["data"]["access_token"]
+                user_resp = requests.get(
+                    "https://open.feishu.cn/open-apis/authen/v1/user_info",
+                    headers={"Authorization": f"Bearer {access_token}"}
+                ).json()
+                if user_resp.get("code") == 0:
+                    user_info = user_resp["data"]
+                    st.session_state.user = {
+                        "open_id": user_info["open_id"],
+                        "name": user_info.get("name", "用户"),
+                    }
+                    # 不清除参数，直接 rerun，已登录逻辑会负责清除 code
+                    st.rerun()
+                else:
+                    st.error(f"获取用户信息失败：{user_resp.get('msg', '未知错误')}")
             else:
-                st.error(f"获取用户信息失败：{user_resp.get('msg', '未知错误')}")
-        else:
-            st.error(f"换取 token 失败：{resp.get('msg', '未知错误')}")
+                st.error(f"换取 token 失败：{resp.get('msg', '未知错误')}")
         st.stop()
-    else:
-        # 未登录且无 code，显示飞书授权按钮
-        auth_url = (
-            f"https://open.feishu.cn/open-apis/authen/v1/index?"
-            f"app_id={FEISHU_APP_ID}&redirect_uri={REDIRECT_URI}"
-            f"&state={str(uuid.uuid4())}"
-        )
-        st.markdown(f"""
-            <div style="text-align:center; margin-top:50px;">
-                <h2>📦 彩盒印刷报价系统</h2>
-                <a href="{auth_url}" target="_self">
-                    <button style="padding:10px 20px;font-size:16px;">🔐 使用飞书账号登录</button>
-                </a>
-            </div>
-        """, unsafe_allow_html=True)
-        st.stop()
+
+    # ---------- 未登录且无 code，显示登录按钮 ----------
+    auth_url = (
+        f"https://open.feishu.cn/open-apis/authen/v1/index?"
+        f"app_id={FEISHU_APP_ID}&redirect_uri={REDIRECT_URI}"
+        f"&state={str(uuid.uuid4())}"
+    )
+    st.markdown(f"""
+        <div style="text-align:center; margin-top:50px;">
+            <h2>📦 彩盒印刷报价系统</h2>
+            <a href="{auth_url}" target="_self">
+                <button style="padding:10px 20px;font-size:16px;">🔐 使用飞书账号登录</button>
+            </a>
+        </div>
+    """, unsafe_allow_html=True)
+    st.stop()
 # ------------------------------ 飞书表格工具函数（含用户隔离） ------------------------------
 def to_text(val):
     return [{"text": str(val)}] if pd.notna(val) else None

@@ -18,7 +18,6 @@ def login():
     if "user" not in st.session_state:
         st.session_state.user = None
 
-    # 已登录，显示用户信息
     if st.session_state.user is not None:
         st.sidebar.success(f"👤 {st.session_state.user['name']}")
         if st.sidebar.button("退出登录"):
@@ -26,7 +25,6 @@ def login():
             st.rerun()
         return
 
-    # 未登录，处理飞书回调
     code = st.query_params.get("code")
     if code:
         # 换取 token
@@ -49,19 +47,21 @@ def login():
                     "open_id": user_resp["data"]["open_id"],
                     "name": user_resp["data"].get("name", "用户"),
                 }
-                # 🔥 关键：清除查询参数并强制刷新到无code的URL
+                # 关键：清除查询参数并强制刷新
                 st.query_params.clear()
-                # 用meta标签跳转，避免rerun再次携带残留参数
-                st.markdown('<meta http-equiv="refresh" content="0; url=/" />', unsafe_allow_html=True)
+                # 使用 JavaScript 强制跳转到首页（去掉 code 参数）
+                st.markdown(
+                    "<script>window.location.href = window.location.origin + '/';</script>",
+                    unsafe_allow_html=True
+                )
                 st.stop()
             else:
                 st.error("获取用户信息失败")
         else:
             st.error(f"登录失败：{resp.get('msg', '未知错误')}")
-        st.query_params.clear()
         st.stop()
     else:
-        # 未登录且无code，显示飞书登录按钮
+        # 未登录，显示飞书授权按钮
         auth_url = (
             f"https://open.feishu.cn/open-apis/authen/v1/index?"
             f"app_id={FEISHU_APP_ID}&redirect_uri={REDIRECT_URI}"
